@@ -36,6 +36,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import { AgentConfigPanel } from "./AgentConfigPanel";
 import { EditAgentDialog } from "./EditAgentDialog";
 import { friendlyAgentLastError } from "@/features/agents/lib/friendlyAgentLastError";
 import { ManagedAgentLogPanel } from "./ManagedAgentLogPanel";
@@ -208,6 +209,15 @@ export function ManagedAgentRow({
             selectedAgent={agent}
             variant="inline"
           />
+          <div className="mt-4 border-t border-border/50 pt-3">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">
+              Configuration
+            </p>
+            <AgentConfigPanel
+              pubkey={agent.pubkey}
+              isRunning={agent.status === "running"}
+            />
+          </div>
         </div>
       ) : null}
     </div>
