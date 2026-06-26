@@ -101,8 +101,6 @@ impl Config {
             env("BUZZ_AGENT_PROVIDER").as_deref(),
             env("ANTHROPIC_API_KEY").as_deref(),
             env("OPENAI_COMPAT_API_KEY").as_deref(),
-            databricks_host.as_deref(),
-            databricks_model.as_deref(),
         )?;
 
         // Universal model override — any provider will use this when its own
@@ -279,43 +277,22 @@ fn present_nonempty(v: Option<&str>) -> bool {
     v.map(str::trim).is_some_and(|s| !s.is_empty())
 }
 
-fn databricks_available(host: Option<&str>, model: Option<&str>) -> bool {
-    present_nonempty(host) && present_nonempty(model)
-}
-
 fn resolve_provider(
     requested: Option<&str>,
     anthropic_key: Option<&str>,
     openai_key: Option<&str>,
-    databricks_host: Option<&str>,
-    databricks_model: Option<&str>,
 ) -> Result<Provider, String> {
-    let databricks_ready = databricks_available(databricks_host, databricks_model);
     match requested.map(str::trim).filter(|s| !s.is_empty()) {
         Some(raw) => {
             let normalized = raw.to_ascii_lowercase();
             match normalized.as_str() {
                 "anthropic" if present_nonempty(anthropic_key) => Ok(Provider::Anthropic),
-                "anthropic" if databricks_ready => {
-                    tracing::warn!(
-                        requested = raw,
-                        "API key missing for requested provider; falling back to Databricks OAuth"
-                    );
-                    Ok(Provider::Databricks)
-                }
                 "anthropic" => Err(
-                    "config: ANTHROPIC_API_KEY required (or set DATABRICKS_HOST and DATABRICKS_MODEL for Databricks OAuth fallback)".into(),
+                    "config: ANTHROPIC_API_KEY required".into(),
                 ),
                 "openai" | "openai-compat" if present_nonempty(openai_key) => Ok(Provider::OpenAi),
-                "openai" | "openai-compat" if databricks_ready => {
-                    tracing::warn!(
-                        requested = raw,
-                        "API key missing for requested provider; falling back to Databricks OAuth"
-                    );
-                    Ok(Provider::Databricks)
-                }
                 "openai" | "openai-compat" => Err(
-                    "config: OPENAI_COMPAT_API_KEY required (or set DATABRICKS_HOST and DATABRICKS_MODEL for Databricks OAuth fallback)".into(),
+                    "config: OPENAI_COMPAT_API_KEY required".into(),
                 ),
                 "databricks" => Ok(Provider::Databricks),
                 _ => Err(format!(
@@ -323,9 +300,8 @@ fn resolve_provider(
                 )),
             }
         }
-        None if databricks_ready => Ok(Provider::Databricks),
         None => Err(
-            "config: BUZZ_AGENT_PROVIDER required (or set DATABRICKS_HOST and DATABRICKS_MODEL for Databricks OAuth fallback)".into(),
+            "config: BUZZ_AGENT_PROVIDER is required — set it to your provider (e.g. anthropic, openai, databricks)".into(),
         ),
     }
 }
@@ -540,8 +516,6 @@ mod tests {
                 Some("anthropic"),
                 Some("sk-ant"),
                 None,
-                Some("https://dbc.example"),
-                Some("db-model")
             )
             .unwrap(),
             Provider::Anthropic
@@ -551,8 +525,6 @@ mod tests {
                 Some("openai"),
                 None,
                 Some("sk-openai"),
-                Some("https://dbc.example"),
-                Some("db-model")
             )
             .unwrap(),
             Provider::OpenAi
@@ -561,64 +533,55 @@ mod tests {
 
     #[test]
     fn resolve_provider_falls_back_to_databricks_when_requested_token_missing() {
-        assert_eq!(
-            resolve_provider(
-                Some("anthropic"),
-                None,
-                None,
-                Some("https://dbc.example"),
-                Some("goose-claude-4-6-sonnet")
-            )
-            .unwrap(),
-            Provider::Databricks
-        );
-        assert_eq!(
-            resolve_provider(
-                Some("openai-compat"),
-                None,
-                Some("   "),
-                Some("https://dbc.example"),
-                Some("goose-claude-4-6-sonnet")
-            )
-            .unwrap(),
-            Provider::Databricks
-        );
+        // No fallback anymore — missing key returns an error regardless of Databricks availability.
+        let err = resolve_provider(
+            Some("anthropic"),
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(err.contains("ANTHROPIC_API_KEY required"), "{err}");
+
+        let err = resolve_provider(
+            Some("openai-compat"),
+            None,
+            Some("   "),
+        )
+        .unwrap_err();
+        assert!(err.contains("OPENAI_COMPAT_API_KEY required"), "{err}");
     }
 
     #[test]
     fn resolve_provider_can_auto_select_databricks_without_explicit_provider() {
-        assert_eq!(
-            resolve_provider(
-                None,
-                None,
-                None,
-                Some("https://dbc.example"),
-                Some("goose-claude-4-6-sonnet")
-            )
-            .unwrap(),
-            Provider::Databricks
-        );
+        // No implicit inference anymore — absent BUZZ_AGENT_PROVIDER is an error.
+        let err = resolve_provider(
+            None,
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(err.contains("BUZZ_AGENT_PROVIDER is required"), "{err}");
     }
 
     #[test]
     fn resolve_provider_requires_databricks_host_and_model_for_fallback() {
-        let err = resolve_provider(
-            Some("openai"),
-            None,
-            None,
-            Some("https://dbc.example"),
-            None,
-        )
-        .unwrap_err();
-        assert!(err.contains("OPENAI_COMPAT_API_KEY required"));
-        let err =
-            resolve_provider(None, None, None, Some("https://dbc.example"), None).unwrap_err();
-        assert!(err.contains("BUZZ_AGENT_PROVIDER required"));
+        // Renamed: verify the explicit databricks provider path works correctly.
+        // When BUZZ_AGENT_PROVIDER=databricks, resolve_provider succeeds regardless
+        // of DATABRICKS_HOST/MODEL (those are validated later in from_env()).
+        assert_eq!(
+            resolve_provider(Some("databricks"), None, None).unwrap(),
+            Provider::Databricks
+        );
+        // Missing key for other providers still errors — no Databricks fallback.
+        let err = resolve_provider(Some("openai"), None, None).unwrap_err();
+        assert!(err.contains("OPENAI_COMPAT_API_KEY required"), "{err}");
+        let err = resolve_provider(None, None, None).unwrap_err();
+        assert!(err.contains("BUZZ_AGENT_PROVIDER is required"), "{err}");
     }
 
     #[test]
     fn resolve_provider_unsupported_error_preserves_user_casing() {
-        let err = resolve_provider(Some("OpenAIish"), None, None, None, None).unwrap_err();
+        let err = resolve_provider(Some("OpenAIish"), None, None).unwrap_err();
         assert!(err.contains("BUZZ_AGENT_PROVIDER=OpenAIish"));
     }
 

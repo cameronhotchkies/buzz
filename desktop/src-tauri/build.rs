@@ -7,8 +7,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=BUZZ_RELAY_HTTP");
     println!("cargo:rerun-if-env-changed=BUZZ_UPDATER_PUBLIC_KEY");
     println!("cargo:rerun-if-env-changed=BUZZ_UPDATER_ENDPOINT");
-    println!("cargo:rerun-if-env-changed=BUZZ_BUILD_DATABRICKS_HOST");
-    println!("cargo:rerun-if-env-changed=BUZZ_BUILD_DATABRICKS_MODEL");
+    println!("cargo:rerun-if-env-changed=BUZZ_BUILD_BUZZ_AGENT_PROVIDER");
+    println!("cargo:rerun-if-env-changed=BUZZ_BUILD_BUZZ_AGENT_MODEL");
     println!("cargo:rerun-if-env-changed=BUZZ_BUILD_RELAY_RECONNECT_CMD");
     println!("cargo:rustc-check-cfg=cfg(buzz_updater_enabled)");
 
@@ -20,12 +20,12 @@ fn main() {
         println!("cargo:rustc-env=BUZZ_DESKTOP_BUILD_RELAY_HTTP={relay_http}");
     }
 
-    if let Ok(host) = std::env::var("BUZZ_BUILD_DATABRICKS_HOST") {
-        println!("cargo:rustc-env=BUZZ_DESKTOP_BUILD_DATABRICKS_HOST={host}");
+    if let Ok(provider) = std::env::var("BUZZ_BUILD_BUZZ_AGENT_PROVIDER") {
+        println!("cargo:rustc-env=BUZZ_DESKTOP_BUILD_BUZZ_AGENT_PROVIDER={provider}");
     }
 
-    if let Ok(model) = std::env::var("BUZZ_BUILD_DATABRICKS_MODEL") {
-        println!("cargo:rustc-env=BUZZ_DESKTOP_BUILD_DATABRICKS_MODEL={model}");
+    if let Ok(model) = std::env::var("BUZZ_BUILD_BUZZ_AGENT_MODEL") {
+        println!("cargo:rustc-env=BUZZ_DESKTOP_BUILD_BUZZ_AGENT_MODEL={model}");
     }
 
     if let Ok(val) = std::env::var("BUZZ_BUILD_RELAY_RECONNECT_CMD") {

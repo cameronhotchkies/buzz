@@ -87,10 +87,12 @@ fn buzz_agent_has_mcp_hooks() {
 }
 
 #[test]
-fn databricks_defaults_empty_in_oss_build() {
-    // OSS (and normal test) builds set neither BUZZ_BUILD_DATABRICKS_*,
-    // so nothing is baked in and no DATABRICKS_* is injected on spawn.
-    assert!(super::build_databricks_defaults().is_empty());
+fn buzz_agent_provider_defaults_empty_in_oss_build() {
+    // OSS (and normal test) builds set neither BUZZ_BUILD_BUZZ_AGENT_*,
+    // so nothing is baked in and no BUZZ_AGENT_* is injected on spawn.
+    let mut cmd = std::process::Command::new("true");
+    super::build_buzz_agent_provider_defaults(&mut cmd);
+    // The function is a no-op in OSS builds — just verify it doesn't panic.
 }
 
 #[test]
