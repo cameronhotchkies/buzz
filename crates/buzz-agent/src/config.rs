@@ -532,8 +532,8 @@ mod tests {
     }
 
     #[test]
-    fn resolve_provider_falls_back_to_databricks_when_requested_token_missing() {
-        // No fallback anymore — missing key returns an error regardless of Databricks availability.
+    fn resolve_provider_errors_when_requested_provider_key_missing() {
+        // No fallback — missing key returns an error regardless of Databricks availability.
         let err = resolve_provider(
             Some("anthropic"),
             None,
@@ -552,8 +552,8 @@ mod tests {
     }
 
     #[test]
-    fn resolve_provider_can_auto_select_databricks_without_explicit_provider() {
-        // No implicit inference anymore — absent BUZZ_AGENT_PROVIDER is an error.
+    fn resolve_provider_errors_when_provider_env_absent() {
+        // No implicit inference — absent BUZZ_AGENT_PROVIDER is an error.
         let err = resolve_provider(
             None,
             None,

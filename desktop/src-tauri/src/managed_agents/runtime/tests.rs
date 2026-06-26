@@ -90,9 +90,19 @@ fn buzz_agent_has_mcp_hooks() {
 fn buzz_agent_provider_defaults_empty_in_oss_build() {
     // OSS (and normal test) builds set neither BUZZ_BUILD_BUZZ_AGENT_*,
     // so nothing is baked in and no BUZZ_AGENT_* is injected on spawn.
-    let mut cmd = std::process::Command::new("true");
+    let mut cmd = std::process::Command::new("env");
     super::build_buzz_agent_provider_defaults(&mut cmd);
-    // The function is a no-op in OSS builds — just verify it doesn't panic.
+    // Verify the function injects nothing when the compile-time vars are absent.
+    let output = cmd.output().expect("env should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("BUZZ_AGENT_PROVIDER="),
+        "BUZZ_AGENT_PROVIDER should not be injected in OSS builds"
+    );
+    assert!(
+        !stdout.contains("BUZZ_AGENT_MODEL="),
+        "BUZZ_AGENT_MODEL should not be injected in OSS builds"
+    );
 }
 
 #[test]
