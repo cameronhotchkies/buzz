@@ -57,6 +57,7 @@ import { mergeCurrentProfileIntoLookup } from "@/features/profile/lib/identity";
 import type { RelayEvent, RespondToMode, SearchHit } from "@/shared/api/types";
 import { useChannelFind } from "@/features/search/useChannelFind";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
+import { CHANNEL_TASKS_FEATURE_ID, useFeatureEnabled } from "@/shared/features";
 import { AgentSessionProvider } from "@/shared/context/AgentSessionContext";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
 import { useMainInsetRef } from "@/shared/layout/MainInsetContext";
@@ -94,6 +95,7 @@ export function ChannelScreen({
   targetMessageEvents,
   targetMessageId,
 }: ChannelScreenProps) {
+  const isChannelTasksEnabled = useFeatureEnabled(CHANNEL_TASKS_FEATURE_ID);
   const { goChannel, goHome } = useAppNavigation();
   const [activeSurfaceTab, setActiveSurfaceTab] =
     React.useState<ChannelSurfaceTab>("messages");
@@ -161,7 +163,8 @@ export function ChannelScreen({
   const mainInsetRef = useMainInsetRef();
   const currentPubkey = currentIdentity?.pubkey;
   const activeChannelId = activeChannel?.id ?? null;
-  const canShowTasksSurface = activeChannel?.channelType === "stream";
+  const canShowTasksSurface =
+    isChannelTasksEnabled && activeChannel?.channelType === "stream";
   const effectiveSurfaceTab = canShowTasksSurface
     ? activeSurfaceTab
     : "messages";
@@ -482,7 +485,11 @@ export function ChannelScreen({
     );
   }, []);
   const { agentConversationMarkers, unreadTimelineMessages } =
-    useAgentConversationTimelineState(resolvedMessages, timelineMessages);
+    useAgentConversationTimelineState(
+      resolvedMessages,
+      timelineMessages,
+      isChannelTasksEnabled,
+    );
   const channelFind = useChannelFind({
     channelId: activeChannelId,
     messages: timelineMessages,
@@ -683,6 +690,10 @@ export function ChannelScreen({
   }, [activeChannelId, resetComposerTargets]);
   const handleSurfaceTabChange = React.useCallback(
     (tab: ChannelSurfaceTab) => {
+      if (tab === "tasks" && !isChannelTasksEnabled) {
+        return;
+      }
+
       setActiveSurfaceTab(tab);
 
       if (tab !== "tasks") {
@@ -701,6 +712,7 @@ export function ChannelScreen({
     [
       clearOptimisticThreadOverride,
       handleCloseAgentSession,
+      isChannelTasksEnabled,
       setChannelManagementOpen,
       setOpenThreadHeadId,
       setProfilePanelPubkey,
@@ -712,7 +724,9 @@ export function ChannelScreen({
     goChannel,
     messageProfilesReady,
     openAgentConversation,
-    targetAgentConversationReplyId,
+    targetAgentConversationReplyId: isChannelTasksEnabled
+      ? targetAgentConversationReplyId
+      : null,
     timelineMessages,
   });
   const { mainTimelineTargetMessageId, rootThreadHeadTargetId } =
@@ -878,7 +892,9 @@ export function ChannelScreen({
         handleSurfaceTabChange("messages");
         setChannelManagementOpen(true);
       }}
-      onSurfaceTabChange={handleSurfaceTabChange}
+      onSurfaceTabChange={
+        isChannelTasksEnabled ? handleSurfaceTabChange : undefined
+      }
       onToggleMembers={() => setIsMembersSidebarOpen((prev) => !prev)}
       showHeaderContent={!isSinglePanelView}
       transparentChrome={activeChannel?.channelType !== "forum"}
@@ -922,6 +938,7 @@ export function ChannelScreen({
                   channelFind={channelFind}
                   channelManagementOpen={channelManagementOpen}
                   currentPubkey={currentPubkey}
+                  enableAgentConversations={isChannelTasksEnabled}
                   canResetThreadPanelWidth={canResetThreadPanelWidth}
                   fetchOlder={fetchOlder}
                   header={channelHeader}

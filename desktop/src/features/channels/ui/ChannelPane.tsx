@@ -74,6 +74,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   channelManagementOpen = false,
   currentPubkey,
   editTarget = null,
+  enableAgentConversations = true,
   fetchOlder,
   header,
   hasOlderMessages,
@@ -167,7 +168,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     !activeChannel.isMember &&
     activeChannel.visibility === "open" &&
     !activeChannel.archivedAt;
-  const isTasksSurface = surfaceTab === "tasks";
+  const isTasksSurface = enableAgentConversations && surfaceTab === "tasks";
   const hasMainComposerOverlay = !isNonMemberView && !isTasksSurface;
   const activeChannelId = activeChannel?.id ?? null;
   const huddleMemberPubkeys = React.useMemo(
@@ -176,6 +177,9 @@ export const ChannelPane = React.memo(function ChannelPane({
   );
   const huddleMemberPubkeysPending =
     agentPubkeysPending && hasOtherDmParticipant(activeChannel, currentPubkey);
+  const activeAgentConversationMarkers = enableAgentConversations
+    ? agentConversationMarkers
+    : undefined;
   const isActiveWelcomeChannel =
     activeChannel !== null && isWelcomeChannel(activeChannel);
   React.useEffect(() => {
@@ -339,6 +343,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   const handleOpenAgentConversation = React.useCallback(
     (message: TimelineMessage, options?: { publishMarker?: boolean }) => {
       if (
+        !enableAgentConversations ||
         !activeChannel ||
         !message.pubkey ||
         !canOpenAgentConversationInChannel({
@@ -376,7 +381,7 @@ export const ChannelPane = React.memo(function ChannelPane({
         options,
       );
     },
-    [activeChannel, messages, openAgentConversation],
+    [activeChannel, enableAgentConversations, messages, openAgentConversation],
   );
   const handleGoToTaskMessage = React.useCallback(
     (
@@ -465,7 +470,8 @@ export const ChannelPane = React.memo(function ChannelPane({
   const threadActivityAgents = React.useMemo(() => {
     if (
       threadComposerBotTypingPubkeys.length === 0 ||
-      (openThreadHeadId &&
+      (enableAgentConversations &&
+        openThreadHeadId &&
         agentConversationMarkers?.some(
           (marker) => marker.threadRootId === openThreadHeadId,
         ))
@@ -482,6 +488,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   }, [
     activityAgents,
     agentConversationMarkers,
+    enableAgentConversations,
     openThreadHeadId,
     threadComposerBotTypingPubkeys,
   ]);
@@ -577,6 +584,10 @@ export const ChannelPane = React.memo(function ChannelPane({
     ];
   }, [threadHeadMessage, threadMessages]);
   const hiddenAgentConversationMessageIds = React.useMemo(() => {
+    if (!enableAgentConversations) {
+      return new Set<string>();
+    }
+
     const hiddenIds = getHiddenAgentConversationMessageIds(
       baseVisibleMessages,
       agentConversationMarkers,
@@ -602,6 +613,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     agentConversationMarkers,
     baseVisibleMessages,
     channelFind.activeMatch?.messageId,
+    enableAgentConversations,
     targetMessageId,
     threadScrollTargetId,
     threadSourceMessages,
@@ -764,7 +776,7 @@ export const ChannelPane = React.memo(function ChannelPane({
           {isTasksSurface ? (
             <ChannelTasksView
               activeChannel={activeChannel}
-              agentConversationMarkers={agentConversationMarkers}
+              agentConversationMarkers={activeAgentConversationMarkers}
               currentPubkey={currentPubkey}
               fetchOlder={fetchOlder}
               hasOlderMessages={hasOlderMessages}
@@ -780,7 +792,7 @@ export const ChannelPane = React.memo(function ChannelPane({
             <>
               <MessageTimeline
                 ref={messageTimelineRef}
-                agentConversationMarkers={agentConversationMarkers}
+                agentConversationMarkers={activeAgentConversationMarkers}
                 agentPubkeys={agentPubkeys}
                 channelId={activeChannel?.id}
                 channelIntro={channelIntro}
@@ -820,7 +832,11 @@ export const ChannelPane = React.memo(function ChannelPane({
                 onEdit={onEdit}
                 onMarkUnread={onMarkUnread}
                 onMarkRead={onMarkRead}
-                onOpenAgentConversation={handleOpenAgentConversation}
+                onOpenAgentConversation={
+                  enableAgentConversations
+                    ? handleOpenAgentConversation
+                    : undefined
+                }
                 onReply={activeChannel?.archivedAt ? undefined : onOpenThread}
                 channelName={activeChannel?.name}
                 channelType={activeChannel?.channelType ?? null}
@@ -883,6 +899,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                       channelType={activeChannel?.channelType ?? null}
                       containerClassName="px-5"
                       disabled={isComposerDisabled}
+                      enableAgentConversationLinks={enableAgentConversations}
                       editTarget={mainEditTarget}
                       isSending={isSending}
                       mediaController={mainComposerMedia}
@@ -959,13 +976,14 @@ export const ChannelPane = React.memo(function ChannelPane({
         (() => {
           const panel = (
             <MessageThreadPanel
-              agentConversationMarkers={agentConversationMarkers}
+              agentConversationMarkers={activeAgentConversationMarkers}
               agentPubkeys={agentPubkeys}
               channel={activeChannel}
               channelId={activeChannel?.id ?? null}
               channelName={activeChannel?.name ?? "channel"}
               currentPubkey={currentPubkey}
               disabled={isComposerDisabled}
+              enableAgentConversationLinks={enableAgentConversations}
               editTarget={threadEditTarget}
               firstUnreadReplyId={threadFirstUnreadReplyId}
               huddleMemberPubkeys={huddleMemberPubkeys}
@@ -989,7 +1007,11 @@ export const ChannelPane = React.memo(function ChannelPane({
               onMarkUnread={onMarkUnread}
               onMarkRead={onMarkRead}
               onExpandReplies={onExpandThreadReplies}
-              onOpenAgentConversation={handleOpenAgentConversation}
+              onOpenAgentConversation={
+                enableAgentConversations
+                  ? handleOpenAgentConversation
+                  : undefined
+              }
               onSelectReplyTarget={onSelectThreadReplyTarget}
               onSend={onSendThreadReply}
               onScrollTargetResolved={onThreadScrollTargetResolved}
