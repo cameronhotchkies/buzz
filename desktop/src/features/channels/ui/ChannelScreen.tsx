@@ -88,7 +88,6 @@ import { useChannelUnreadState } from "./useChannelUnreadState";
 import type { ChannelScreenProps } from "./ChannelScreen.types";
 
 const HEADER_ACTIONS_COMPACT_BREAKPOINT_PX = 760;
-
 export function ChannelScreen({
   activeChannel,
   currentIdentity,
@@ -1041,6 +1040,7 @@ export function ChannelScreen({
                   onSendMessage={handleSendMessage}
                   onSendVideoReviewComment={effectiveSendVideoReviewComment}
                   onSendThreadReply={handleSendThreadReply}
+                  onThreadScrollTargetChange={setThreadScrollTargetId}
                   onThreadScrollTargetResolved={
                     handleThreadScrollTargetResolved
                   }
