@@ -346,6 +346,7 @@ export function ChannelScreen({
   const agentLookupReady =
     !channelMembersQuery.isLoading &&
     !managedAgentsQuery.isLoading &&
+    !messageProfilesQuery.isLoading &&
     !relayAgentsQuery.isLoading;
   const agentPubkeys = React.useMemo(() => {
     const pubkeys = new Set<string>();
@@ -938,6 +939,7 @@ export function ChannelScreen({
                   activeChannel={activeChannel}
                   activityAgents={channelAgentSessionAgents}
                   agentConversationMarkers={agentConversationMarkers}
+                  agentLookupReady={agentLookupReady}
                   agentPubkeys={routingAgentPubkeys}
                   agentPubkeysPending={agentPubkeysPending}
                   agentSessionAgents={agentSessionAgents}
