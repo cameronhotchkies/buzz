@@ -50,8 +50,9 @@ const overrides = new Map([
   ["src-tauri/src/managed_agents/nest.rs", 1450],
   // harness-persona-sync: persona-runtime resolution threaded into the spawn
   // path here. Load-bearing feature growth; queued to split in the resolver
-  // unify refactor followup.
-  ["src-tauri/src/managed_agents/runtime.rs", 2031],
+  // unify refactor followup. +26 for resolve_effective_prompt_model_provider
+  // re-introduced after 826d735fe removal (config-bridge caller still needs it).
+  ["src-tauri/src/managed_agents/runtime.rs", 2036],
   ["src-tauri/src/managed_agents/personas.rs", 1080],
   // Phase-2 inbound reconcile + review-fix cycle: reconcile_inbound_persona_event
   // dispatches 30175/30176/30177 inbound plus kind:5 tombstone consume
@@ -94,7 +95,9 @@ const overrides = new Map([
   // AgentConfigPanel footer fold into ProfileFieldGroup for the config-bridge
   // panel — a small overage from load-bearing UI plumbing, not generic debt
   // growth. Approved override; still queued to split with the rest of this list.
-  ["src/features/profile/ui/UserProfilePanelSections.tsx", 1004],
+  // +135 for AgentInfoFocusedView/DiagnosticsFocusedView/ChannelsFocusedView
+  // props restored after 826d735fe removal (UserProfilePanel.tsx still needs them).
+  ["src/features/profile/ui/UserProfilePanelSections.tsx", 1140],
   // useDueReminderBadgeCount hook call + sum to wire due-reminder count into
   // the Inbox nav badge — a small overage from load-bearing badge plumbing,
   // not generic debt growth. Approved override; still queued to split.
