@@ -125,8 +125,10 @@ export function useCreateChannelMutation() {
         ]),
       );
     },
-    onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: channelsQueryKey });
+    onSettled: () => {
+      // Fire-and-forget: onSuccess already cached the channel; awaiting the
+      // refetch here would block the create dialog on a full getChannels().
+      void queryClient.invalidateQueries({ queryKey: channelsQueryKey });
     },
   });
 }
