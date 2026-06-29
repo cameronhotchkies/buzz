@@ -249,6 +249,9 @@ const MessageTimelineBase = React.forwardRef<
     liveCount: messages.length,
   });
   const showTimelineSkeleton = timelineBodySurface === "skeleton";
+  const isHistoryPrependPending =
+    isFetchingOlder ||
+    isRenderedTimelineBehindHistoryPrepend(deferredMessages, messages);
 
   const {
     highlightedMessageId,
@@ -262,6 +265,7 @@ const MessageTimelineBase = React.forwardRef<
     channelId,
     contentRef,
     isLoading: showTimelineSkeleton,
+    isHistoryPrependPending,
     messages: deferredMessages,
     onTargetReached,
     resetKey: scrollResetKey,
@@ -273,7 +277,7 @@ const MessageTimelineBase = React.forwardRef<
     hasChannelIntro: channelIntro !== null && directMessageIntro === null,
     hasDirectMessageIntro: directMessageIntro !== null,
     hasReachedChannelStart:
-      !isRenderedTimelineBehindHistoryPrepend(deferredMessages, messages) &&
+      !isHistoryPrependPending &&
       (messages.length === 0 || (!hasOlderMessages && !isFetchingOlder)),
     isSkeletonVisible: showTimelineSkeleton,
   });
@@ -411,8 +415,7 @@ const MessageTimelineBase = React.forwardRef<
         ) : null}
         {/* `isFetchingOlder` clears on fetch resolve, but rows paint a frame
             later off the deferred snapshot — keep the spinner up until then. */}
-        {isFetchingOlder ||
-        isRenderedTimelineBehindHistoryPrepend(deferredMessages, messages) ? (
+        {isHistoryPrependPending ? (
           <div
             className={cn(
               "pointer-events-none absolute inset-x-0 z-20 flex translate-y-3 justify-center px-4",
@@ -427,7 +430,7 @@ const MessageTimelineBase = React.forwardRef<
         ) : null}
         <div
           className={cn(
-            "absolute inset-0 overflow-y-auto overflow-x-hidden overscroll-none px-2 pt-1 [overflow-anchor:none]",
+            "absolute inset-0 overflow-y-auto overflow-x-hidden overscroll-none px-2 pt-1",
             hasComposerOverlay ? "pb-40" : "pb-4",
           )}
           data-scroll-restoration-id={scrollRestorationId}
