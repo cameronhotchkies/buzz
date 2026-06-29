@@ -37,8 +37,8 @@ const overrides = new Map([
   // persona-refresh-on-spawn: re-snapshot + retain_managed_agent_pending call
   // in start_local_agent_with_preflight adds ~23 lines. Queued to split.
   // continued-agent-conversations: refreshes the owner auth tag before
-  // starting/restoring agents so staged identities keep working.
-  ["src-tauri/src/commands/agents.rs", 1388],
+  // starting/restoring/deploying agents so staged identities keep working.
+  ["src-tauri/src/commands/agents.rs", 1404],
   // Residual repos_dir integration in ensure_nest_at: REPOS is provisioned
   // outside NEST_DIRS (it may be a symlink), so it needs its own create +
   // chmod-only-when-real-dir handling plus integration test coverage. The
