@@ -187,6 +187,7 @@ export function useAnchoredScroll({
 
   // Reset everything when the rendered conversation changes.
   React.useLayoutEffect(() => {
+    void scrollScopeKey;
     anchorRef.current = { kind: "at-bottom" };
     setIsAtBottom(true);
     setNewMessageCount(0);
@@ -456,6 +457,7 @@ export function useAnchoredScroll({
   // row across the reflow, so there's nothing to do.
   // ---------------------------------------------------------------------------
   React.useEffect(() => {
+    void scrollScopeKey;
     const content = contentRef.current;
     if (!content || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
