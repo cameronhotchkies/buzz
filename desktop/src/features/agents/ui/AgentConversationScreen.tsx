@@ -13,6 +13,7 @@ import {
   type AgentConversation,
   publishAgentConversationMarker,
 } from "@/features/agents/agentConversations";
+import { mergeAutoRouteMentionPubkeys } from "@/features/channels/ui/ChannelPane.helpers";
 import {
   useManagedAgentsQuery,
   useRelayAgentsQuery,
@@ -457,6 +458,10 @@ export function AgentConversationScreen({
         .map((participant) => participant.pubkey),
     [agentParticipants],
   );
+  const autoRouteAgentPubkeys = React.useMemo(
+    () => (routeableAgentPubkeys.length === 1 ? routeableAgentPubkeys : []),
+    [routeableAgentPubkeys],
+  );
   const canMessageAnyAgent = routeableAgentPubkeys.length > 0;
   const restrictedAgentNames = React.useMemo(
     () =>
@@ -535,14 +540,19 @@ export function AgentConversationScreen({
       mentionPubkeys: string[],
       mediaTags?: string[][],
     ) => {
+      const routedMentionPubkeys = mergeAutoRouteMentionPubkeys({
+        autoRouteAgentPubkeys,
+        mentionPubkeys,
+      });
+
       await sendMessageMutation.mutateAsync({
         content,
         mediaTags,
-        mentionPubkeys,
+        mentionPubkeys: routedMentionPubkeys,
         parentEventId: replyParentEventId,
       });
     },
-    [replyParentEventId, sendMessageMutation],
+    [autoRouteAgentPubkeys, replyParentEventId, sendMessageMutation],
   );
 
   const isComposerDisabled =
