@@ -508,17 +508,28 @@ impl AcpClient {
     /// The matching `Sender` is stored in `TaskMeta.steer_tx` for the
     /// main loop's mode-gate fork to drive.
     ///
-    /// Panics if a receiver is already installed — there is exactly one
-    /// turn per `AcpClient` at a time, and stacking receivers would
-    /// silently misroute steer requests across turns. The previous
-    /// turn's receiver must have been consumed by the read loop and
+    /// There is exactly one turn per `AcpClient` at a time, and the previous
+    /// turn's receiver is normally consumed by the read loop (see
+    /// [`read_until_response_with_idle_timeout`], which `take()`s it) and
     /// dropped at scope exit before the next turn dispatches.
+    ///
+    /// On turn failures that return *before* the read loop runs — e.g. a
+    /// `session/new` error in `run_prompt_task` — the receiver is never taken
+    /// and a stale one is still installed when the agent is recycled and the
+    /// next turn dispatches. This is benign: the failed turn's `TaskMeta` (and
+    /// with it the matching `steer_tx`) is dropped by `handle_prompt_result`
+    /// before re-dispatch, so the stale receiver's sender is already dead and
+    /// cannot misroute requests into the new turn (which gets a fresh channel
+    /// pair). We therefore drop the stale receiver with a warning rather than
+    /// panicking — a recoverable child-turn failure must never take down the
+    /// whole harness.
     pub fn install_steer_rx(&mut self, rx: tokio::sync::mpsc::Receiver<crate::pool::SteerRequest>) {
-        assert!(
-            self.steer_rx.is_none(),
-            "install_steer_rx: previous turn's receiver was not consumed — \
-             stacking receivers would misroute steer requests across turns"
-        );
+        if self.steer_rx.is_some() {
+            tracing::warn!(
+                "install_steer_rx: previous turn's steer receiver was not consumed \
+                 (turn likely failed before the read loop) — dropping the stale receiver"
+            );
+        }
         self.steer_rx = Some(rx);
     }
 
@@ -2582,6 +2593,30 @@ mod tests {
     //
     // We don't test the full mode-gate fork here — that lives in lib.rs
     // and is covered by goose e2e (Eva's lane).
+
+    /// Installing a steer receiver when a stale one is still present (the
+    /// previous turn failed before the read loop consumed it — e.g. a
+    /// `session/new` error) must NOT panic. The stale receiver is dropped
+    /// and the new one installed. Regression test for the harness-killing
+    /// `assert!` that turned a recoverable child-turn failure into a
+    /// main-thread panic.
+    #[tokio::test]
+    async fn install_steer_rx_replaces_stale_receiver_without_panicking() {
+        let mut client = spawn_script("sleep 10").await;
+
+        let (_tx1, rx1) = tokio::sync::mpsc::channel::<crate::pool::SteerRequest>(1);
+        client.install_steer_rx(rx1);
+
+        // Second install without the first being consumed (simulates a turn
+        // that returned before the read loop ran). Must not panic.
+        let (_tx2, rx2) = tokio::sync::mpsc::channel::<crate::pool::SteerRequest>(1);
+        client.install_steer_rx(rx2);
+
+        assert!(
+            client.steer_rx.is_some(),
+            "the freshly installed receiver must be present after replacing the stale one"
+        );
+    }
 
     /// Steer with no `active_run_id` set acks `ExpectedRunIdMissing`
     /// without writing anything. The read loop continues normally and
