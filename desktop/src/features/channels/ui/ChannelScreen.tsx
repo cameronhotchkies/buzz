@@ -90,6 +90,7 @@ export function ChannelScreen({
   onCloseForumPost,
   onSelectForumPost,
   selectedForumPostId,
+  targetAgentConversationBackfillPending = false,
   targetAgentConversationReplyId,
   targetForumReplyId,
   targetMessageEvents,
@@ -732,6 +733,7 @@ export function ChannelScreen({
     goChannel,
     messageProfilesReady,
     openAgentConversation,
+    targetBackfillPending: targetAgentConversationBackfillPending,
     targetAgentConversationReplyId: isChannelTasksEnabled
       ? targetAgentConversationReplyId
       : null,
