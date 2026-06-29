@@ -503,6 +503,13 @@ pub(crate) fn sweep_system_agent_processes(instance_id: &str, skip_pids: &[u32])
         if skip_pids.contains(&info.pbi_ppid) {
             continue;
         }
+        // Grandchild check: the harness is spawned with process_group(0), so
+        // all descendants share its PGID. If this process's PGID matches a
+        // tracked harness PID, it's a live descendant — not an orphan.
+        let pgid = unsafe { libc::getpgid(pid) };
+        if pgid > 0 && skip_pids.contains(&(pgid as u32)) {
+            continue;
+        }
         if !process_has_buzz_marker(upid, instance_id) {
             continue;
         }
@@ -528,6 +535,17 @@ fn read_ppid_linux(pid: u32) -> Option<u32> {
     // Fields after ')': " S ppid pgid ..."
     let ppid_str = after_comm.split_whitespace().nth(1)?;
     ppid_str.parse::<u32>().ok()
+}
+
+/// Read the process group ID from /proc/<pid>/stat. Same parsing strategy as
+/// `read_ppid_linux` — field 3 after the closing ')' is the PGID.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn read_pgid_linux(pid: u32) -> Option<u32> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let after_comm = stat.rsplit_once(')')?.1;
+    // Fields after ')': " S ppid pgid ..."
+    let pgid_str = after_comm.split_whitespace().nth(2)?;
+    pgid_str.parse::<u32>().ok()
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -572,6 +590,14 @@ pub(crate) fn sweep_system_agent_processes(instance_id: &str, skip_pids: &[u32])
         // on transient failures.
         if let Some(ppid) = read_ppid_linux(upid) {
             if skip_pids.contains(&ppid) {
+                continue;
+            }
+        }
+        // Grandchild check: the harness is spawned with process_group(0), so
+        // all descendants share its PGID. If this process's PGID matches a
+        // tracked harness PID, it's a live descendant — not an orphan.
+        if let Some(pgid) = read_pgid_linux(upid) {
+            if skip_pids.contains(&pgid) {
                 continue;
             }
         }
@@ -694,6 +720,13 @@ pub(crate) fn collect_same_instance_orphans(
         if skip_pids.contains(&info.pbi_ppid) {
             continue;
         }
+        // Grandchild check: the harness is spawned with process_group(0), so
+        // all descendants share its PGID. If this process's PGID matches a
+        // tracked harness PID, it's a live descendant — not an orphan.
+        let pgid = unsafe { libc::getpgid(pid) };
+        if pgid > 0 && skip_pids.contains(&(pgid as u32)) {
+            continue;
+        }
         if process_has_buzz_marker(upid, instance_id) {
             orphans.insert(upid);
         }
@@ -744,6 +777,14 @@ pub(crate) fn collect_same_instance_orphans(
         // shortly, and the two-tick grace prevents acting on transient failures.
         if let Some(ppid) = read_ppid_linux(upid) {
             if skip_pids.contains(&ppid) {
+                continue;
+            }
+        }
+        // Grandchild check: the harness is spawned with process_group(0), so
+        // all descendants share its PGID. If this process's PGID matches a
+        // tracked harness PID, it's a live descendant — not an orphan.
+        if let Some(pgid) = read_pgid_linux(upid) {
+            if skip_pids.contains(&pgid) {
                 continue;
             }
         }
