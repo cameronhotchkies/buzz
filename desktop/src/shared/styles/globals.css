@@ -830,6 +830,27 @@
   }
 }
 
+.message-markdown ul {
+  list-style-type: disc;
+  margin: 0.25rem 0;
+  padding-left: 1.5rem;
+}
+
+.message-markdown ol {
+  list-style-type: decimal;
+  margin: 0.25rem 0;
+  padding-left: 1.5rem;
+}
+
+.message-markdown li {
+  margin: 0.125rem 0;
+  padding-left: 0.125rem;
+}
+
+.message-markdown li > p {
+  display: inline;
+}
+
 /* ── Tiptap rich-text composer ──────────────────────────────────────── */
 .rich-text-composer .tiptap {
   outline: none;
@@ -1059,27 +1080,6 @@
 .message-markdown .link-preview-media {
   background-color: var(--buzz-link-preview-icon-bg);
   color: var(--buzz-link-preview-icon-color);
-}
-
-.message-markdown ul {
-  list-style-type: disc;
-  margin: 0.25rem 0;
-  padding-left: 1.5rem;
-}
-
-.message-markdown ol {
-  list-style-type: decimal;
-  margin: 0.25rem 0;
-  padding-left: 1.5rem;
-}
-
-.message-markdown li {
-  margin: 0.125rem 0;
-  padding-left: 0.125rem;
-}
-
-.message-markdown li > p {
-  display: inline;
 }
 
 .message-markdown .mention-chip,
