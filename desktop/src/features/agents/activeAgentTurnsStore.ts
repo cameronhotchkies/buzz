@@ -30,18 +30,27 @@ const MAX_TURNS_PER_AGENT = 4;
 const MAX_TERMINAL_TOMBSTONES = MAX_TURNS_PER_AGENT * 4;
 /** Interval for pruning stale/expired turns. */
 const PRUNE_INTERVAL_MS = 5_000;
+/** How long an errored turn badge remains visible before auto-clearing (ms).
+ * Gives the user time to notice the failure without requiring manual dismissal. */
+const ERROR_DISPLAY_MS = 30_000;
 
 type ActiveTurn = {
   turnId: string;
   channelId: string;
   startedAt: number;
   lastActivityAt: number;
+  /** Set when the turn ended with an error; the badge renders this instead of elapsed time. */
+  errorClass?: string | undefined;
+  /** Timestamp (ms) when the error was recorded — used for auto-clear after ERROR_DISPLAY_MS. */
+  errorAt?: number | undefined;
 };
 
 /** One working channel surfaced to the UI, anchored to the desktop clock. */
 export type ActiveTurnSummary = {
   channelId: string;
   anchorAt: number;
+  /** If the turn ended with an error, the classified error type. */
+  errorClass?: string | undefined;
 };
 
 /** One channel with active agent work, aggregated across agents. */
@@ -51,6 +60,8 @@ export type ActiveChannelTurnSummary = {
   agentCount: number;
   agentPubkeys: string[];
   agentNames?: string[];
+  /** If any agent turn in this channel ended with an error, the classified error type. */
+  errorClass?: string | undefined;
 };
 
 // Module-level state: agentPubkey → turnId → ActiveTurn
@@ -255,6 +266,83 @@ function endTurn(
   invalidateCache(key);
 }
 
+/**
+ * Mark a turn as errored instead of immediately deleting it. The turn stays
+ * visible with an error badge for ERROR_DISPLAY_MS, then is pruned. If the
+ * turn doesn't exist (already pruned), create a short-lived error tombstone
+ * so the badge still appears.
+ */
+function markTurnErrored(
+  agentPubkey: string,
+  turnId: string | null,
+  channelId: string | null,
+  payload: unknown,
+) {
+  const key = normalizePubkey(agentPubkey);
+  const now = Date.now();
+
+  // Extract error_class from the payload (set by the harness).
+  const errorClass = extractErrorClass(payload);
+
+  const agentTurns = activeTurnsByAgent.get(key);
+  let resolved = false;
+
+  if (agentTurns) {
+    if (turnId && agentTurns.has(turnId)) {
+      const turn = agentTurns.get(turnId);
+      if (turn) {
+        turn.errorClass = errorClass;
+        turn.errorAt = now;
+        turn.lastActivityAt = now; // keep it alive for prune
+        resolved = true;
+      }
+    } else if (channelId) {
+      for (const turn of agentTurns.values()) {
+        if (turn.channelId === channelId) {
+          turn.errorClass = errorClass;
+          turn.errorAt = now;
+          turn.lastActivityAt = now;
+          resolved = true;
+          break;
+        }
+      }
+    }
+  }
+
+  // If no existing turn was found, create a short-lived error entry so the
+  // badge renders. This covers the case where the turn was already pruned
+  // before the error event arrived.
+  if (!resolved && channelId) {
+    const syntheticTurnId = turnId ?? `error-${now}`;
+    const newTurn: ActiveTurn = {
+      turnId: syntheticTurnId,
+      channelId,
+      startedAt: now,
+      lastActivityAt: now,
+      errorClass,
+      errorAt: now,
+    };
+    let agentMap = activeTurnsByAgent.get(key);
+    if (!agentMap) {
+      agentMap = new Map();
+      activeTurnsByAgent.set(key, agentMap);
+    }
+    agentMap.set(syntheticTurnId, newTurn);
+  }
+
+  invalidateCache(key);
+  ensurePruneInterval();
+}
+
+/** Extract the `error_class` string from a turn_error/agent_panic payload. */
+function extractErrorClass(payload: unknown): string {
+  if (payload && typeof payload === "object" && "error_class" in payload) {
+    const val = (payload as Record<string, unknown>).error_class;
+    if (typeof val === "string" && val.length > 0) return val;
+  }
+  return "error";
+}
+
 /** True when every tracked turn across every agent is simultaneously stale —
  * no turn has had activity within FRAME_GAP_PAUSE_MS. With no tracked turns
  * there is nothing to prune, so it returns false (never pause). */
@@ -284,7 +372,10 @@ function pruneExpired() {
   let changed = false;
   for (const [agentKey, agentTurns] of activeTurnsByAgent) {
     for (const [turnId, turn] of agentTurns) {
-      if (now - turn.lastActivityAt > REMOVE_AFTER_MS) {
+      // Errored turns have a shorter display window before clearing.
+      const expiry = turn.errorAt ? ERROR_DISPLAY_MS : REMOVE_AFTER_MS;
+      const age = turn.errorAt ? now - turn.errorAt : now - turn.lastActivityAt;
+      if (age > expiry) {
         agentTurns.delete(turnId);
         invalidateCache(agentKey);
         changed = true;
@@ -340,13 +431,21 @@ function processEvent(agentPubkey: string, event: ObserverEvent) {
       }
       break;
     case "turn_completed":
-    case "turn_error":
-    case "agent_panic":
       endTurn(
         agentPubkey,
         event.turnId ?? null,
         event.channelId ?? null,
         Date.parse(event.timestamp),
+      );
+      notifyListeners();
+      return;
+    case "turn_error":
+    case "agent_panic":
+      markTurnErrored(
+        agentPubkey,
+        event.turnId ?? null,
+        event.channelId ?? null,
+        event.payload,
       );
       notifyListeners();
       return;
@@ -419,18 +518,28 @@ export function getActiveTurnsForAgent(
   // Collapse multiple turns in one channel to the earliest start — the badge
   // should count from when the channel's oldest live turn began. Anchors are
   // derived here (startedAt + offset) so the latest skew estimate applies.
-  const earliestByChannel = new Map<string, number>();
+  // If any turn in the channel is errored, surface the error class.
+  const earliestByChannel = new Map<
+    string,
+    { startedAt: number; errorClass?: string }
+  >();
   for (const turn of agentTurns.values()) {
     const prior = earliestByChannel.get(turn.channelId);
-    if (prior === undefined || turn.startedAt < prior) {
-      earliestByChannel.set(turn.channelId, turn.startedAt);
+    if (prior === undefined || turn.startedAt < prior.startedAt) {
+      earliestByChannel.set(turn.channelId, {
+        startedAt: turn.startedAt,
+        errorClass: turn.errorClass ?? prior?.errorClass,
+      });
+    } else if (turn.errorClass && !prior.errorClass) {
+      prior.errorClass = turn.errorClass;
     }
   }
 
   const result = [...earliestByChannel.entries()]
-    .map(([channelId, startedAt]) => ({
+    .map(([channelId, info]) => ({
       channelId,
-      anchorAt: startedAt + offset,
+      anchorAt: info.startedAt + offset,
+      ...(info.errorClass ? { errorClass: info.errorClass } : {}),
     }))
     .sort((a, b) => a.channelId.localeCompare(b.channelId));
   cachedTurnSummaries.set(key, result);
@@ -450,7 +559,7 @@ export function getActiveTurnsByChannel(): ActiveChannelTurnSummary[] {
 
   const summaries = new Map<
     string,
-    { anchorAt: number; agentPubkeys: Set<string> }
+    { anchorAt: number; agentPubkeys: Set<string>; errorClass?: string }
   >();
 
   for (const [agentKey, agentTurns] of activeTurnsByAgent) {
@@ -464,6 +573,7 @@ export function getActiveTurnsByChannel(): ActiveChannelTurnSummary[] {
         summaries.set(turn.channelId, {
           anchorAt,
           agentPubkeys: new Set([agentKey]),
+          errorClass: turn.errorClass,
         });
         continue;
       }
@@ -471,6 +581,9 @@ export function getActiveTurnsByChannel(): ActiveChannelTurnSummary[] {
       summary.agentPubkeys.add(agentKey);
       if (anchorAt < summary.anchorAt) {
         summary.anchorAt = anchorAt;
+      }
+      if (turn.errorClass && !summary.errorClass) {
+        summary.errorClass = turn.errorClass;
       }
     }
   }
@@ -481,6 +594,7 @@ export function getActiveTurnsByChannel(): ActiveChannelTurnSummary[] {
       anchorAt: summary.anchorAt,
       agentCount: summary.agentPubkeys.size,
       agentPubkeys: [...summary.agentPubkeys].sort(),
+      ...(summary.errorClass ? { errorClass: summary.errorClass } : {}),
     }))
     .sort((a, b) => a.channelId.localeCompare(b.channelId));
   cachedChannelTurnSummaries = result;

@@ -120,6 +120,26 @@ export function formatWorkingTooltip(
   return `${leadName} and ${formatAgentCount(remainingAgentCount)} working`;
 }
 
+/** Map error_class strings to short user-facing labels. */
+function friendlyErrorLabel(errorClass: string): string {
+  switch (errorClass) {
+    case "agent_error":
+      return "Auth error";
+    case "transport":
+      return "Transport error";
+    case "timeout":
+    case "idle_timeout":
+    case "hard_timeout":
+      return "Timed out";
+    case "exited":
+      return "Crashed";
+    case "protocol":
+      return "Protocol error";
+    default:
+      return "Error";
+  }
+}
+
 function ChannelWorkingBadge({
   channelName,
   isActive,
@@ -130,18 +150,26 @@ function ChannelWorkingBadge({
   summary: ActiveChannelTurnSummary;
 }) {
   const now = useNow(1000);
+  const errorClass = summary.errorClass;
   const elapsed = formatElapsed(now - summary.anchorAt);
-  const label =
-    summary.agentCount > 1 ? `${elapsed} (${summary.agentCount})` : elapsed;
-  const title = formatWorkingTooltip(summary);
+  const label = errorClass
+    ? friendlyErrorLabel(errorClass)
+    : summary.agentCount > 1
+      ? `${elapsed} (${summary.agentCount})`
+      : elapsed;
+  const title = errorClass
+    ? `${friendlyErrorLabel(errorClass)} — ${formatWorkingTooltip(summary)}`
+    : formatWorkingTooltip(summary);
 
   return (
     <span
       className={cn(
-        "hidden max-w-32 shrink-0 truncate rounded-full px-1.5 py-0.5 text-2xs font-medium leading-none tabular-nums motion-safe:animate-pulse group-data-[collapsible=icon]:hidden sm:inline-flex",
-        isActive
-          ? "bg-sidebar-active-foreground/20 text-sidebar-active-foreground"
-          : "bg-primary/10 text-primary",
+        "hidden max-w-32 shrink-0 truncate rounded-full px-1.5 py-0.5 text-2xs font-medium leading-none tabular-nums group-data-[collapsible=icon]:hidden sm:inline-flex",
+        errorClass
+          ? "bg-destructive/15 text-destructive"
+          : isActive
+            ? "bg-sidebar-active-foreground/20 text-sidebar-active-foreground motion-safe:animate-pulse"
+            : "bg-primary/10 text-primary motion-safe:animate-pulse",
       )}
       data-testid={`channel-working-${channelName}`}
       title={title}
