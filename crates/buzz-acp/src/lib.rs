@@ -2782,11 +2782,12 @@ fn handle_prompt_result(
         PromptSource::Channel(ch) => Some(*ch),
         PromptSource::Heartbeat => None,
     };
-    let emit_turn_error = |error_msg: &str, error_code: Option<i64>| {
+    let emit_turn_error = |error_msg: &str, error_code: Option<i64>, error_class: &str| {
         if let Some(ref observer) = observer {
             let mut payload = serde_json::json!({
                 "outcome": outcome_label,
                 "error": error_msg,
+                "error_class": error_class,
             });
             if let Some(code) = error_code {
                 payload["code"] = serde_json::json!(code);
@@ -2823,7 +2824,7 @@ fn handle_prompt_result(
                 "exited" => "Agent process exited unexpectedly",
                 _ => "Agent session timed out due to inactivity",
             };
-            emit_turn_error(death_message, None);
+            emit_turn_error(death_message, None, outcome_label);
 
             let index = result.agent.index;
             let slot_history = &mut crash_history[index];
@@ -2888,7 +2889,7 @@ fn handle_prompt_result(
                     acp::AcpError::AgentError { code, .. } => Some(*code),
                     _ => None,
                 };
-                emit_turn_error(&e.to_string(), error_code);
+                emit_turn_error(&e.to_string(), error_code, "transport");
 
                 let index = result.agent.index;
                 let slot_history = &mut crash_history[index];
@@ -2918,7 +2919,14 @@ fn handle_prompt_result(
                     acp::AcpError::AgentError { code, .. } => Some(*code),
                     _ => None,
                 };
-                emit_turn_error(&e.to_string(), error_code);
+                let error_class = match &e {
+                    acp::AcpError::IdleTimeout(_) => "idle_timeout",
+                    acp::AcpError::HardTimeout => "hard_timeout",
+                    acp::AcpError::AgentError { .. } => "agent_error",
+                    acp::AcpError::Json(_) => "protocol",
+                    _ => "unknown",
+                };
+                emit_turn_error(&e.to_string(), error_code, error_class);
                 pool.return_agent(result.agent);
             }
         }
@@ -4128,6 +4136,105 @@ mod error_outcome_emission_tests {
     async fn application_error_emits_exactly_one_feed_event() {
         let app = AcpError::IdleTimeout(std::time::Duration::from_secs(1));
         assert_eq!(turn_errors_emitted_for(PromptOutcome::Error(app)).await, 1);
+    }
+
+    /// Return the `error_class` string from the first `turn_error` event for this outcome.
+    async fn error_class_for(outcome: PromptOutcome) -> String {
+        let agent = dummy_agent(0).await;
+        let mut pool = AgentPool::from_slots(vec![None]);
+
+        let task_id = pool.join_set.spawn(async {}).id();
+        pool.task_map_mut().insert(
+            task_id,
+            crate::pool::TaskMeta {
+                agent_index: 0,
+                channel_id: None,
+                recoverable_batch: None,
+                control_tx: None,
+                steer_tx: None,
+            },
+        );
+
+        let mut queue = EventQueue::new(config::DedupMode::Queue);
+        let config = test_config();
+        let mut heartbeat_in_flight = false;
+        let removed_channels = HashSet::new();
+        let mut crash_history = vec![SlotCircuit {
+            crash_times: Vec::new(),
+            open_until: None,
+            respawn_in_flight: false,
+        }];
+        let (respawn_tx, _respawn_rx) = mpsc::channel(8);
+        let mut respawn_tasks = tokio::task::JoinSet::new();
+        let observer = ObserverHandle::in_process();
+
+        let result = PromptResult {
+            agent,
+            source: PromptSource::Channel(Uuid::new_v4()),
+            outcome,
+            batch: None,
+        };
+
+        handle_prompt_result(
+            &mut pool,
+            &mut queue,
+            &config,
+            result,
+            &mut heartbeat_in_flight,
+            &removed_channels,
+            &mut crash_history,
+            &respawn_tx,
+            &mut respawn_tasks,
+            Some(observer.clone()),
+            None,
+        );
+
+        observer
+            .snapshot()
+            .into_iter()
+            .find(|e| e.kind == "turn_error")
+            .expect("expected a turn_error event")
+            .payload["error_class"]
+            .as_str()
+            .expect("error_class field missing or not a string")
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn agent_exited_has_correct_error_class() {
+        assert_eq!(error_class_for(PromptOutcome::AgentExited).await, "exited");
+    }
+
+    #[tokio::test]
+    async fn timeout_has_correct_error_class() {
+        assert_eq!(error_class_for(PromptOutcome::Timeout).await, "timeout");
+    }
+
+    #[tokio::test]
+    async fn transport_error_has_correct_error_class() {
+        let io = AcpError::Io(std::io::Error::other("pipe broke"));
+        assert_eq!(error_class_for(PromptOutcome::Error(io)).await, "transport");
+    }
+
+    #[tokio::test]
+    async fn idle_timeout_has_correct_error_class() {
+        let idle = AcpError::IdleTimeout(std::time::Duration::from_secs(1));
+        assert_eq!(
+            error_class_for(PromptOutcome::Error(idle)).await,
+            "idle_timeout"
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_error_has_correct_error_class() {
+        let agent_err = AcpError::AgentError {
+            code: -32000,
+            message: "llm auth: denied".into(),
+        };
+        assert_eq!(
+            error_class_for(PromptOutcome::Error(agent_err)).await,
+            "agent_error"
+        );
     }
 }
 
