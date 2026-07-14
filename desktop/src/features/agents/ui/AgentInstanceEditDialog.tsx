@@ -708,7 +708,9 @@ export function AgentInstanceEditDialog({
         );
       }
       if (result.profileSyncError) {
-        console.warn("Relay profile sync failed:", result.profileSyncError);
+        toast.warning(
+          `${result.agent.name} was renamed, but relay sync failed: ${result.profileSyncError}. Other agents may see the old name until sync recovers.`,
+        );
       }
       handleOpenChange(false);
       onUpdated?.(result.agent);
