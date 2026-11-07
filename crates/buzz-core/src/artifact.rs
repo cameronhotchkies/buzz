@@ -28,6 +28,11 @@ pub enum ArtifactOp {
     Delete,
     /// Complete snapshot that revives a deleted artifact.
     Restore,
+    /// Complete snapshot that also becomes the community-readable published
+    /// revision (NIP-AR Publication; optional relay capability).
+    Publish,
+    /// Complete snapshot that also withdraws the published revision.
+    Unpublish,
 }
 impl ArtifactOp {
     fn parse(value: &str) -> Option<Self> {
@@ -37,8 +42,16 @@ impl ArtifactOp {
             "move" => Self::Move,
             "delete" => Self::Delete,
             "restore" => Self::Restore,
+            "publish" => Self::Publish,
+            "unpublish" => Self::Unpublish,
             _ => return None,
         })
+    }
+
+    /// Whether this operation belongs to the optional Publication extension,
+    /// which a relay must reject unless it advertises the `publish` capability.
+    pub fn is_publication(self) -> bool {
+        matches!(self, Self::Publish | Self::Unpublish)
     }
 }
 /// The authoritative envelope, independent of any client's content schema.
@@ -191,7 +204,15 @@ mod tests {
     }
     #[test]
     fn lifecycle_envelopes() {
-        for op in ["create", "update", "move", "delete", "restore"] {
+        for op in [
+            "create",
+            "update",
+            "move",
+            "delete",
+            "restore",
+            "publish",
+            "unpublish",
+        ] {
             assert!(validate(&event(vec![], op, "")).is_ok(), "{op}");
         }
         assert!(validate(&event(
@@ -215,6 +236,43 @@ mod tests {
             (vec![vec!["x".repeat(129), "x".into()]], "create", ""),
         ] {
             assert!(validate(&event(tags, op, content)).is_err());
+        }
+    }
+    #[test]
+    fn publication_envelopes_follow_snapshot_rules() {
+        // Publication ops are snapshots: they need `prev` and a nonblank title.
+        // Rewrite one envelope tag's value and re-sign.
+        fn with_tag(base: &Event, name: &str, value: &str) -> Event {
+            let tags = base.tags.iter().map(|t| {
+                let mut parts = t.as_slice().to_vec();
+                if parts[0] == name {
+                    parts[1] = value.into();
+                }
+                Tag::parse(parts).unwrap()
+            });
+            EventBuilder::new(Kind::Custom(45010), base.content.clone())
+                .tags(tags)
+                .sign_with_keys(&Keys::generate())
+                .unwrap()
+        }
+        for op in ["publish", "unpublish"] {
+            let env = validate(&event(vec![], op, "body")).unwrap();
+            assert!(env.op.is_publication(), "{op}");
+            assert!(env.prev.is_some(), "{op}");
+            // A create-shaped envelope (no prev) relabelled with the op.
+            let no_prev = with_tag(&event(vec![], "create", ""), "op", op);
+            assert!(validate(&no_prev).is_err(), "{op} without prev");
+            let blank = with_tag(&event(vec![], op, ""), "title", " ");
+            assert!(validate(&blank).is_err(), "{op} with blank title");
+        }
+        for op in [
+            ArtifactOp::Create,
+            ArtifactOp::Update,
+            ArtifactOp::Move,
+            ArtifactOp::Delete,
+            ArtifactOp::Restore,
+        ] {
+            assert!(!op.is_publication(), "{op:?}");
         }
     }
     #[test]

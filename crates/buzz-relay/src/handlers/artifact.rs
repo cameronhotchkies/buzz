@@ -17,6 +17,7 @@ pub(crate) async fn accept(
 ) -> Result<IngestResult, IngestError> {
     let env = buzz_core::artifact::validate(event)
         .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
+    reject_unsupported_op(env.op)?;
     verify_revision_auth(event)?;
     let source = if env.op == ArtifactOp::Move {
         let source = state
@@ -68,6 +69,19 @@ pub(crate) async fn accept(
     })
 }
 
+/// NIP-AR Publication is an optional capability this relay does not yet
+/// advertise. Its revisions must be rejected before storage: the store would
+/// otherwise accept them as plain updates without the read-access semantics
+/// the spec promises.
+fn reject_unsupported_op(op: ArtifactOp) -> Result<(), IngestError> {
+    if op.is_publication() {
+        return Err(IngestError::Rejected(
+            "unsupported: artifact publication is not enabled on this relay".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn head_unavailable() -> IngestError {
     IngestError::CanvasConflict(format!("conflict: {}", buzz_db::artifact::HEAD_UNAVAILABLE))
 }
@@ -117,6 +131,27 @@ fn verify_revision_auth(event: &Event) -> Result<(), IngestError> {
 mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind};
+
+    #[test]
+    fn publication_ops_are_rejected_until_the_capability_ships() {
+        for op in [ArtifactOp::Publish, ArtifactOp::Unpublish] {
+            match reject_unsupported_op(op) {
+                Err(IngestError::Rejected(message)) => {
+                    assert!(message.starts_with("unsupported:"), "{op:?}: {message}")
+                }
+                other => panic!("{op:?} was not rejected: {other:?}"),
+            }
+        }
+        for op in [
+            ArtifactOp::Create,
+            ArtifactOp::Update,
+            ArtifactOp::Move,
+            ArtifactOp::Delete,
+            ArtifactOp::Restore,
+        ] {
+            assert!(reject_unsupported_op(op).is_ok(), "{op:?}");
+        }
+    }
 
     #[test]
     fn revision_auth_checks_every_condition_not_just_admission() {

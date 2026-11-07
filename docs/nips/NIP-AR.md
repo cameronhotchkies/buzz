@@ -40,7 +40,7 @@ The `assignee` and `project` tags and the payload are illustrative, not required
 | `h` | Home channel UUID. |
 | `type` | Namespaced content type. |
 | `title` | Absent on `delete`; otherwise required, nonblank display title, at most 512 UTF-8 bytes. |
-| `op` | `create`, `update`, `move`, `delete`, or `restore`. |
+| `op` | `create`, `update`, `move`, `delete`, or `restore`; `publish` and `unpublish` where the relay supports [Publication](#publication). |
 | `root` | Optional conversation anchor event ID within `h`. |
 | `prev` | Previous accepted revision ID; required except on creation. |
 
@@ -64,7 +64,7 @@ On creation or when changed from the previous accepted revision, `root` MUST ide
 
 ## Access
 
-Channel read permission governs every artifact read, including lookups, history, search, previews, counts, and live updates. Threads inherit their channel's audience. Membership and visibility changes take effect on subsequent reads and deliveries.
+Channel read permission governs every artifact read, including lookups, history, search, previews, counts, and live updates. The one exception is a published revision on a relay that supports [Publication](#publication). Threads inherit their channel's audience. Membership and visibility changes take effect on subsequent reads and deliveries.
 
 Write permission means permission to post a kind-9 message in the channel, including authentication, token restrictions, moderation, and archive checks. Relays apply these checks the same way, and at the same point, as for a kind-9 message. This includes agents and, where channel policy permits, nonmembers of open channels. Artifact writes use `messages:write`, the scope that admits kind-9 posting.
 
@@ -86,6 +86,45 @@ The relay MUST atomically advance the current revision and store both arrival in
 Earlier revisions remain under their original channels' access rules; a move never lets the destination read revisions from the source. The destination can load current state without reading earlier revisions. Conversation messages stay where they are.
 
 Deletion is a soft delete: a revision with `op=delete`, empty content, and no `title` tag. It preserves the current `type`, `h`, and `root`, and contains only envelope tags and NIP-OA `auth` tags the relay has verified. It removes the artifact from current-state queries and active views. Its revisions stay readable under their channels' access rules until redacted or expired by retention, so a lookup by `d` returns the deletion. After deletion, only `restore` is accepted: it names the deletion in `prev`, keeps its `h`, and carries a complete snapshot that becomes the current state again. A deleted `d` stays reserved and is never reused for another artifact. Completing or archiving work is a content change, not deletion or channel archival.
+
+## Publication
+
+`optional`
+
+Publication lets a home channel's writers make one revision readable to the whole community while drafting and history stay in the home. The motivating case is long-form writing: an author drafts in a private channel only they belong to, then publishes a finished revision for everyone to read. Publication is a deliberate exception to "channel read permission governs every artifact read"; it applies only to the revision a writer chose to publish.
+
+A relay that supports publication advertises `publish` in its NIP-11 `artifacts` object. A relay that does not MUST reject `publish` and `unpublish` revisions with an explicit `unsupported:` reason, and clients MUST NOT send them unless the capability is advertised.
+
+### Operations
+
+| Operation | Effect | Required permission |
+| --- | --- | --- |
+| `publish` | A complete snapshot that becomes the current revision **and** the published revision. It keeps `h`. | Write in the home channel. |
+| `unpublish` | A complete snapshot that becomes the current revision and withdraws the published revision. | Write in the home channel. |
+
+Both follow the ordinary `prev` rules: they name the current revision and lose to a competing edit like any other revision. `title` is required on both. `publish` on a deleted artifact is rejected; `unpublish` on an unpublished artifact is accepted and changes nothing but the current revision.
+
+An artifact has at most one published revision. Later `update` revisions advance the current revision only: the published revision stays fixed until the next `publish`, so an author keeps editing privately after publishing. Clients show the author when the current revision differs from the published one.
+
+The published revision is withdrawn by `unpublish`, by `delete`, by `move`, and by a kind-9005 redaction of the published revision itself. `restore` does not republish. A withdrawn revision stays readable under its home channel's ordinary rules.
+
+### Who can read
+
+The published revision is readable by every reader who may read channel-less community events: an authenticated member whose token is not limited to specific channels. Those readers see exactly one event, the published revision. They do not see the current revision when it differs, earlier revisions, the history of the artifact, the `root` conversation, or anything about the home channel beyond its UUID in `h`. Readers with access to the home channel see the artifact under the ordinary rules.
+
+Publication grants read access only. Writes, moves, and deletion still require write permission in the home, so publishing never lets the wider audience edit.
+
+### Queries and search
+
+```json
+["REQ", "p1", {"artifact": "published", "#type": ["example.article"]}]
+```
+
+The `published` view returns the published revision of every artifact the reader can see through publication or through home-channel access, filtered by exact tag matches as for `current`. It supports the same limits and pagination as `current`. Published revisions are searchable by the same audience; current and earlier revisions remain searchable only by home-channel readers.
+
+### Client behavior
+
+Before the first `publish` of an artifact, and before any `publish` after an `unpublish`, clients MUST show the audience ("everyone in this community") and the revision being shared, and require confirmation, as for `move`. Publishing cannot erase copies that readers already downloaded; `unpublish` stops future reads only.
 
 ## Moderation and retention
 
